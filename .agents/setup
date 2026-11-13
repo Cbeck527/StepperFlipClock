@@ -1,0 +1,104 @@
+#!/usr/bin/env bash
+# Prepares an Amp orb to build the ESP32 firmware in esp32/:
+# ESP-IDF with the ESP32-C6 toolchain, installed by Espressif's installer (eim).
+#
+# A cold run downloads about 7 GB and takes about 5 minutes.
+# A warm run only checks what is already there and takes about a second.
+set -euo pipefail
+
+IDF_VERSION="v6.1"
+IDF_TARGETS="esp32c6"
+
+ESPRESSIF_DIR="$HOME/.espressif"
+ACTIVATE="$ESPRESSIF_DIR/tools/activate_idf_${IDF_VERSION}.sh"
+ENV_FILE="$ESPRESSIF_DIR/orb-env.sh"
+PROFILE="$HOME/.bash_profile"
+PROFILE_MARKER="# ESP-IDF environment (stepperflipclock .agents/setup)"
+
+step() {
+  local name="$1" start=$SECONDS
+  shift
+  echo "==> $name"
+  "$@"
+  echo "    done in $((SECONDS - start))s"
+}
+
+# libbsd-dev is needed to build for ESP-IDF's "linux" target, which runs the unit tests on the host.
+APT_PACKAGES=(eim-cli libbsd-dev)
+
+install_apt_packages() {
+  local missing=()
+  for pkg in "${APT_PACKAGES[@]}"; do
+    dpkg -s "$pkg" >/dev/null 2>&1 || missing+=("$pkg")
+  done
+  if [ ${#missing[@]} -eq 0 ]; then
+    echo "    already installed: ${APT_PACKAGES[*]}"
+    return
+  fi
+  # Espressif's documented APT source for eim; it pulls in cmake, ninja, ccache and friends.
+  echo "deb [trusted=yes] https://dl.espressif.com/dl/eim/apt/ stable main" |
+    sudo tee /etc/apt/sources.list.d/espressif.list >/dev/null
+  sudo apt-get update -qq
+  sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq "${missing[@]}"
+}
+
+idf_is_installed() {
+  [ -f "$ACTIVATE" ] &&
+    jq -e --arg v "$IDF_VERSION" \
+      '.idfInstalled[] | select(.name == $v and .status == "finished")' \
+      "$ESPRESSIF_DIR/tools/eim_idf.json" >/dev/null 2>&1
+}
+
+install_idf() {
+  if idf_is_installed; then
+    echo "    ESP-IDF $IDF_VERSION already installed"
+    return
+  fi
+  eim install \
+    --idf-versions "$IDF_VERSION" \
+    --target "$IDF_TARGETS" \
+    --cleanup true \
+    --do-not-track true \
+    --config-file-save-path "$ESPRESSIF_DIR/eim_config.toml" \
+    --log-file "$ESPRESSIF_DIR/eim-install.log"
+}
+
+# Amp runs commands in fresh login shells. Sourcing eim's activation script there
+# costs seconds and prints a banner, so save the variables it would set to a file
+# that the profile can source instantly. eim's shims directory, which is on that
+# PATH, provides idf.py and esptool.py as real commands.
+#
+# Every login shell sources the file, including one started from a shell that already
+# has it: Debian's /etc/profile resets PATH, so only PATH can tell whether the
+# toolchain is there. The file adds the toolchain to PATH unless it is already present.
+write_env_file() {
+  sh "$ACTIVATE" -e | while IFS='=' read -r key value; do
+    case "$key" in
+      SYSTEM_PATH) ;;
+      PATH) printf 'case ":$PATH:" in *":%s:"*) ;; *) export PATH="%s:$PATH" ;; esac\n' "$value" "$value" ;;
+      *) printf 'export %s="%s"\n' "$key" "$value" ;;
+    esac
+  done >"$ENV_FILE.tmp"
+  mv "$ENV_FILE.tmp" "$ENV_FILE"
+}
+
+PROFILE_HOOK="if [ -f \"$ENV_FILE\" ]; then . \"$ENV_FILE\"; fi"
+
+hook_profile() {
+  if grep -Fqx "$PROFILE_HOOK" "$PROFILE" 2>/dev/null; then
+    echo "    profile hook already present"
+    return
+  fi
+  if [ -f "$PROFILE" ]; then
+    # Remove the hook's older form, which skipped the file whenever IDF_PATH was set.
+    sed -i '/^if \[ -z "\${IDF_PATH:-}" \] && \[ -f ".*orb-env\.sh" \]; then$/,/^fi$/d' "$PROFILE"
+    grep -Fvx "$PROFILE_MARKER" "$PROFILE" >"$PROFILE.tmp" || true
+    mv "$PROFILE.tmp" "$PROFILE"
+  fi
+  printf '\n%s\n%s\n' "$PROFILE_MARKER" "$PROFILE_HOOK" >>"$PROFILE"
+}
+
+step "System packages" install_apt_packages
+step "ESP-IDF $IDF_VERSION for $IDF_TARGETS" install_idf
+step "Environment file" write_env_file
+step "Shell profile hook" hook_profile
