@@ -28,7 +28,11 @@ target_include_directories(test_stepper_core PRIVATE "${COMPONENTS}/stepper/incl
 target_link_libraries(test_stepper_core PRIVATE Threads::Threads)
 add_test(NAME stepper_core COMMAND test_stepper_core)
 
-foreach(test test_flip_logic test_stepper_core)
+add_executable(test_ds3231_regs test_ds3231_regs.c "${COMPONENTS}/ds3231/ds3231_regs.c")
+target_include_directories(test_ds3231_regs PRIVATE "${COMPONENTS}/ds3231/include")
+add_test(NAME ds3231_regs COMMAND test_ds3231_regs)
+
+foreach(test test_flip_logic test_stepper_core test_ds3231_regs)
     target_link_libraries(${test} PRIVATE unity)
     target_compile_options(${test} PRIVATE ${CHECKS})
     target_link_options(${test} PRIVATE -fsanitize=address,undefined)

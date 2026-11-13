@@ -2,7 +2,10 @@
 
 #include <inttypes.h>
 #include <stdio.h>
+#include <time.h>
 
+#include "clock_time.h"
+#include "ds3231.h"
 #include "esp_check.h"
 #include "esp_console.h"
 #include "flip_logic.h"
@@ -41,6 +44,71 @@ static int cmd_step(int argc, char **argv)
     return 0;
 }
 
+static void print_tm(const char *label, const struct tm *tm, const char *format)
+{
+    char text[32];
+    strftime(text, sizeof text, format, tm);
+    printf("%-6s %s\n", label, text);
+}
+
+// Prints system time in UTC and local time, what the RTC says, and whether the time is trusted.
+static void print_now(void)
+{
+    time_t now = time(NULL);
+    struct tm tm;
+    print_tm("UTC", gmtime_r(&now, &tm), "%Y-%m-%d %H:%M:%S");
+    print_tm("Local", localtime_r(&now, &tm), "%Y-%m-%d %H:%M:%S %Z");
+
+    ds3231_datetime_t rtc;
+    bool stopped = false;
+    esp_err_t err = ds3231_read_time(&rtc, &stopped);
+    if (err == ESP_OK || err == ESP_ERR_INVALID_RESPONSE) {
+        if (err == ESP_OK) {
+            printf("RTC    %04d-%02d-%02d %02d:%02d:%02d UTC", rtc.year, rtc.month, rtc.day, rtc.hour,
+                   rtc.minute, rtc.second);
+        } else {
+            printf("RTC    no valid date in its registers");
+        }
+        printf("%s\n", stopped ? ", oscillator stop flag SET" : ", oscillator ok");
+    } else {
+        printf("RTC    not responding (%s)\n", esp_err_to_name(err));
+    }
+
+    if (clock_time_trusted()) {
+        printf("Time is trusted.\n");
+    } else {
+        printf("Time is NOT trusted. Set it with: z <yyyymmddhhmmss>, in UTC\n");
+    }
+}
+
+static int cmd_now(int argc, char **argv)
+{
+    (void)argv;
+    if (argc != 1) {
+        printf("Usage: now\n");
+        return 1;
+    }
+    print_now();
+    return 0;
+}
+
+static int cmd_set_time(int argc, char **argv)
+{
+    ds3231_datetime_t utc;
+    if (argc != 2 || !ds3231_parse_datetime(argv[1], &utc)) {
+        printf("Usage: z <yyyymmddhhmmss>, a real UTC date and time from 2000 to 2099,\n"
+               "for example z 20261113174509. Get it on your computer with: date -u +%%Y%%m%%d%%H%%M%%S\n");
+        return 1;
+    }
+    esp_err_t err = clock_time_set_utc(&utc);
+    if (err != ESP_OK) {
+        printf("Could not set the RTC: %s\n", esp_err_to_name(err));
+        return 1;
+    }
+    print_now();
+    return 0;
+}
+
 esp_err_t console_cmds_register(uint32_t max_steps, uint32_t step_period_us)
 {
     s_max_steps = max_steps;
@@ -53,5 +121,21 @@ esp_err_t console_cmds_register(uint32_t max_steps, uint32_t step_period_us)
         .func = cmd_step,
     };
     ESP_RETURN_ON_ERROR(esp_console_cmd_register(&step), TAG, "registering s");
+
+    const esp_console_cmd_t now = {
+        .command = "now",
+        .help = "Print the time in UTC and local time, what the RTC says, and whether the time is trusted.",
+        .func = cmd_now,
+    };
+    ESP_RETURN_ON_ERROR(esp_console_cmd_register(&now), TAG, "registering now");
+
+    const esp_console_cmd_t set_time = {
+        .command = "z",
+        .help = "Set the RTC and the clock's time, in UTC: z yyyymmddhhmmss. "
+                "On your computer, date -u +%Y%m%d%H%M%S prints it.",
+        .hint = "<yyyymmddhhmmss>",
+        .func = cmd_set_time,
+    };
+    ESP_RETURN_ON_ERROR(esp_console_cmd_register(&set_time), TAG, "registering z");
     return ESP_OK;
 }

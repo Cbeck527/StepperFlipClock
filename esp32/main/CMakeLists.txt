@@ -1,2 +1,2 @@
 idf_component_register(SRCS "main.c"
-                       PRIV_REQUIRES console console_cmds flip_logic stepper)
+                       PRIV_REQUIRES clock_time console console_cmds flip_logic stepper)

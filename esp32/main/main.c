@@ -1,3 +1,4 @@
+#include "clock_time.h"
 #include "console_cmds.h"
 #include "esp_console.h"
 #include "esp_err.h"
@@ -27,6 +28,17 @@ void app_main(void)
     ESP_LOGI(TAG, "Stepper on GPIO %d, %d, %d, %d (IN1-IN4), %u us per step%s",
              stepper.in_gpio[0], stepper.in_gpio[1], stepper.in_gpio[2], stepper.in_gpio[3],
              (unsigned)stepper.step_period_us, stepper.reverse ? ", reversed" : "");
+
+    const clock_time_config_t clock_time = {
+        .timezone = CONFIG_FLIPCLOCK_TIMEZONE,
+        .sda_gpio = CONFIG_FLIPCLOCK_I2C_SDA_GPIO,
+        .scl_gpio = CONFIG_FLIPCLOCK_I2C_SCL_GPIO,
+        .resync_minutes = CONFIG_FLIPCLOCK_RTC_RESYNC_MINUTES,
+    };
+    ESP_LOGI(TAG, "RTC on SDA GPIO %d, SCL GPIO %d; time zone %s", clock_time.sda_gpio,
+             clock_time.scl_gpio, clock_time.timezone);
+    // Without the RTC the console still starts, so the wiring can be checked from it.
+    clock_time_init(&clock_time);
 
     // There is no display store yet, so assume the display shows 00:00.
     flip_clock_t clock;
