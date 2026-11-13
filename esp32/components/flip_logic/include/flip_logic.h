@@ -73,3 +73,7 @@ flip_next_t flip_clock_update(flip_clock_t *clock);
 // Parses exactly four digits HHMM, such as "2359", into a minute of day.
 // Returns false for anything else, including hours above 23 and minutes above 59.
 bool flip_parse_hhmm(const char *text, int *minute_of_day);
+
+// Parses a decimal number of one or more digits, with no sign, spaces or other text,
+// such as a console argument. Returns false, leaving *value alone, unless it is from min to max.
+bool flip_parse_uint(const char *text, uint32_t min, uint32_t max, uint32_t *value);

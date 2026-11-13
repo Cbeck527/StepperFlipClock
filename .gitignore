@@ -5,4 +5,4 @@
 esp32/build/
 esp32/sdkconfig
 esp32/sdkconfig.old
-esp32/components/flip_logic/host_test/build/
+esp32/host_test/build/

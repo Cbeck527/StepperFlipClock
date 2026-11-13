@@ -245,6 +245,41 @@ static void test_out_of_range_minutes_are_rejected(void)
     TEST_ASSERT_EQUAL_INT(HM(23, 59), clock.display);
 }
 
+static void test_parse_uint_accepts_the_range(void)
+{
+    uint32_t value = 7;
+    TEST_ASSERT_TRUE(flip_parse_uint("1", 1, 1280, &value));
+    TEST_ASSERT_EQUAL_UINT32(1, value);
+    TEST_ASSERT_TRUE(flip_parse_uint("1280", 1, 1280, &value));
+    TEST_ASSERT_EQUAL_UINT32(1280, value);
+    TEST_ASSERT_TRUE(flip_parse_uint("0143", 1, 1280, &value));
+    TEST_ASSERT_EQUAL_UINT32(143, value);
+    TEST_ASSERT_TRUE(flip_parse_uint("0", 0, 255, &value));
+    TEST_ASSERT_EQUAL_UINT32(0, value);
+    TEST_ASSERT_TRUE(flip_parse_uint("4294967295", 0, UINT32_MAX, &value));
+    TEST_ASSERT_EQUAL_UINT32(UINT32_MAX, value);
+}
+
+static void test_parse_uint_rejects_everything_else(void)
+{
+    // For s, which takes 1 to 1280 steps. "-5" is the sketch's runaway S-5.
+    static const char *const bad[] = {
+        "-5", "0", "1281", "9999", "+5", "", " 5", "5 ", "5\r", "12a", "0x10", "1e3",
+        "4294967296", "99999999999999999999",
+    };
+    for (size_t i = 0; i < sizeof bad / sizeof bad[0]; i++) {
+        uint32_t value = 7;
+        TEST_ASSERT_FALSE_MESSAGE(flip_parse_uint(bad[i], 1, 1280, &value), bad[i]);
+        TEST_ASSERT_EQUAL_UINT32_MESSAGE(7, value, bad[i]);
+    }
+    // A single digit above a small max, and the first number past UINT32_MAX.
+    uint32_t value = 7;
+    TEST_ASSERT_FALSE(flip_parse_uint("7", 0, 5, &value));
+    TEST_ASSERT_FALSE(flip_parse_uint("", 0, 255, &value));
+    TEST_ASSERT_FALSE(flip_parse_uint("4294967296", 0, UINT32_MAX, &value));
+    TEST_ASSERT_EQUAL_UINT32(7, value);
+}
+
 static void test_parse_hhmm(void)
 {
     int minute = -7;
@@ -283,5 +318,7 @@ int main(void)
     RUN_TEST(test_no_target_keeps_still);
     RUN_TEST(test_out_of_range_minutes_are_rejected);
     RUN_TEST(test_parse_hhmm);
+    RUN_TEST(test_parse_uint_accepts_the_range);
+    RUN_TEST(test_parse_uint_rejects_everything_else);
     return UNITY_END();
 }

@@ -26,4 +26,46 @@ menu "Flip clock"
             catch up. When it is further ahead, the clock winds forward the long way round,
             which takes up to a day of flips.
 
+    menu "Stepper wiring"
+
+        config FLIPCLOCK_IN1_GPIO
+            int "GPIO wired to the driver board's IN1"
+            range 0 48
+            default 18
+            help
+                The defaults for IN1 to IN4 (GPIO 18 to 21) avoid the ESP32-C6's strapping,
+                USB, UART0 and SPI flash pins. Check that your board brings them out.
+
+        config FLIPCLOCK_IN2_GPIO
+            int "GPIO wired to the driver board's IN2"
+            range 0 48
+            default 19
+
+        config FLIPCLOCK_IN3_GPIO
+            int "GPIO wired to the driver board's IN3"
+            range 0 48
+            default 20
+
+        config FLIPCLOCK_IN4_GPIO
+            int "GPIO wired to the driver board's IN4"
+            range 0 48
+            default 21
+
+        config FLIPCLOCK_REVERSE
+            bool "Reverse the motor"
+            default n
+            help
+                Turn the motor the other way. Set this when the flaps do not fall
+                because the motor turns backwards.
+
+        config FLIPCLOCK_STEP_PERIOD_US
+            int "Time between steps, in microseconds"
+            range 1000 20000
+            default 3000
+            help
+                3000 matches the Arduino version. A longer time gives the motor more
+                torque per step, which can cure stalls at the cost of a slower flip.
+
+    endmenu
+
 endmenu

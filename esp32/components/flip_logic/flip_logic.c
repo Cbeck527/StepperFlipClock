@@ -106,3 +106,26 @@ bool flip_parse_hhmm(const char *text, int *minute_of_day)
     *minute_of_day = 60 * hours + minutes;
     return true;
 }
+
+bool flip_parse_uint(const char *text, uint32_t min, uint32_t max, uint32_t *value)
+{
+    if (*text == '\0') {
+        return false;
+    }
+    uint32_t number = 0;
+    for (; *text != '\0'; text++) {
+        if (*text < '0' || *text > '9') {
+            return false;
+        }
+        uint32_t digit = (uint32_t)(*text - '0');
+        if (digit > max || number > (max - digit) / 10) {
+            return false; // Above max, which also keeps the arithmetic from overflowing.
+        }
+        number = 10 * number + digit;
+    }
+    if (number < min) {
+        return false;
+    }
+    *value = number;
+    return true;
+}
