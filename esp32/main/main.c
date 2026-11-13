@@ -8,10 +8,13 @@ static const char *TAG = "flipclock";
 
 void app_main(void)
 {
-    flip_cycle_t cycle;
-    flip_cycle_init(&cycle, CONFIG_FLIPCLOCK_STEPS_PER_CYCLE, CONFIG_FLIPCLOCK_MINUTES_PER_CYCLE);
-    ESP_LOGI(TAG, "Motor: %u steps per %u minutes",
-             (unsigned)cycle.steps_per_cycle, (unsigned)cycle.minutes_per_cycle);
+    // There is no display store yet, so assume the display shows 00:00.
+    flip_clock_t clock;
+    flip_clock_init(&clock, CONFIG_FLIPCLOCK_STEPS_PER_CYCLE, CONFIG_FLIPCLOCK_MINUTES_PER_CYCLE,
+                    CONFIG_FLIPCLOCK_MAX_PAUSE_MINUTES, 0);
+    ESP_LOGI(TAG, "Motor: %u steps per %u minutes; pauses up to %u minutes",
+             (unsigned)clock.cycle.steps_per_cycle, (unsigned)clock.cycle.minutes_per_cycle,
+             (unsigned)clock.max_pause_minutes);
 
     esp_console_repl_t *repl = NULL;
     esp_console_repl_config_t repl_config = ESP_CONSOLE_REPL_CONFIG_DEFAULT();

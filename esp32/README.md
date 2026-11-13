@@ -29,8 +29,9 @@ cd esp32
 idf.py build
 ```
 
-The target (`esp32c6`) comes from `sdkconfig.defaults`. Motor settings are under
-"Flip clock" in `idf.py menuconfig`; the defaults are for the Copal 227 (1280 steps per 9 minutes).
+The target (`esp32c6`) comes from `sdkconfig.defaults`. The motor settings and the
+longest pause (120 minutes) are under "Flip clock" in `idf.py menuconfig`; the motor defaults
+are for the Copal 227 (1280 steps per 9 minutes).
 
 ## Run the host tests
 

@@ -16,4 +16,14 @@ menu "Flip clock"
             Minutes the display advances in one full turn of the flip mechanism.
             Copal 227: 9. GE 7-4305: 15.
 
+    config FLIPCLOCK_MAX_PAUSE_MINUTES
+        int "Longest pause when the display is ahead, in minutes"
+        range 0 720
+        default 120
+        help
+            A flip clock cannot go backwards. When the display is ahead of local time by
+            up to this many minutes, as after a DST fall-back, the clock waits for time to
+            catch up. When it is further ahead, the clock winds forward the long way round,
+            which takes up to a day of flips.
+
 endmenu
