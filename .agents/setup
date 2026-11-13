@@ -23,8 +23,7 @@ step() {
   echo "    done in $((SECONDS - start))s"
 }
 
-# libbsd-dev is needed to build for ESP-IDF's "linux" target, which runs the unit tests on the host.
-APT_PACKAGES=(eim-cli libbsd-dev)
+APT_PACKAGES=(eim-cli)
 
 install_apt_packages() {
   local missing=()

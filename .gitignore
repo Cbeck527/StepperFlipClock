@@ -1,2 +1,8 @@
 # Amp orb runtime files
 .amp/portals/*
+
+# ESP-IDF build output and the generated config (sdkconfig.defaults is the source)
+esp32/build/
+esp32/sdkconfig
+esp32/sdkconfig.old
+esp32/components/flip_logic/host_test/build/

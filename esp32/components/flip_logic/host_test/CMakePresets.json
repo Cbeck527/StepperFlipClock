@@ -1,0 +1,22 @@
+{
+  "version": 6,
+  "configurePresets": [
+    { "name": "host", "generator": "Ninja", "binaryDir": "${sourceDir}/build" }
+  ],
+  "buildPresets": [
+    { "name": "host", "configurePreset": "host" }
+  ],
+  "testPresets": [
+    { "name": "host", "configurePreset": "host", "output": { "verbosity": "verbose" } }
+  ],
+  "workflowPresets": [
+    {
+      "name": "host",
+      "steps": [
+        { "type": "configure", "name": "host" },
+        { "type": "build", "name": "host" },
+        { "type": "test", "name": "host" }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,4 @@
+CONFIG_IDF_TARGET="esp32c6"
+
+# The console runs on the chip's built-in USB Serial/JTAG port, which leaves UART0's pins free.
+CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
