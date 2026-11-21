@@ -1,8 +1,10 @@
 #include "console_cmds.h"
 
+#include <fcntl.h>
 #include <inttypes.h>
 #include <stdio.h>
 #include <time.h>
+#include <unistd.h>
 
 #include "clock_time.h"
 #include "ds3231.h"
@@ -11,6 +13,7 @@
 #include "flip_logic.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "linenoise/linenoise.h"
 #include "stepper.h"
 
 static const char *TAG = "console_cmds";
@@ -107,6 +110,39 @@ static int cmd_set_time(int argc, char **argv)
     }
     print_now();
     return 0;
+}
+
+// esp_console_new_repl_stdio() asks the terminal for its status (ESC[5n) before it installs
+// the USB Serial/JTAG driver. Until then, a non-blocking read of stdin never looks at the
+// hardware, so the reply is never seen, the REPL falls back to dumb mode, and the reply turns
+// up later as the first line typed. Now the driver is installed, reads work: the earlier reply
+// is usually waiting, and if not, asking again gets one.
+void console_cmds_redo_terminal_probe(void)
+{
+    if (!linenoiseIsDumbMode()) {
+        return; // Fixed upstream, or a console that never had the problem.
+    }
+    int fd = fileno(stdin);
+    int flags = fcntl(fd, F_GETFL);
+    fcntl(fd, F_SETFL, flags | O_NONBLOCK);
+    // Take everything already received, for 100 ms. An escape character can only be the
+    // terminal's reply, since nothing else sends one before the prompt appears.
+    bool answered = false;
+    for (int i = 0; i < 10; i++) {
+        char c;
+        while (read(fd, &c, 1) == 1) {
+            answered |= c == '\x1b';
+        }
+        vTaskDelay(pdMS_TO_TICKS(10));
+    }
+    fcntl(fd, F_SETFL, flags);
+
+    if (answered || linenoiseProbe() == 0) {
+        linenoiseSetDumbMode(0);
+        ESP_LOGI(TAG, "Terminal answered the escape-sequence probe; line editing is on");
+    } else {
+        ESP_LOGI(TAG, "Terminal did not answer the escape-sequence probe; line editing stays off");
+    }
 }
 
 esp_err_t console_cmds_register(uint32_t max_steps, uint32_t step_period_us)

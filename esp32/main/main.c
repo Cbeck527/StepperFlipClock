@@ -57,5 +57,6 @@ void app_main(void)
     ESP_ERROR_CHECK(esp_console_new_repl_stdio(&repl_config, &repl));
     // The s command can turn the motor at most one full cycle at a time.
     ESP_ERROR_CHECK(console_cmds_register(CONFIG_FLIPCLOCK_STEPS_PER_CYCLE, stepper.step_period_us));
+    console_cmds_redo_terminal_probe();
     ESP_ERROR_CHECK(esp_console_start_repl(repl));
 }

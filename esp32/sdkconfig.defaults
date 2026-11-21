@@ -2,3 +2,6 @@ CONFIG_IDF_TARGET="esp32c6"
 
 # The console runs on the chip's built-in USB Serial/JTAG port, which leaves UART0's pins free.
 CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
+
+# The owner's clock turns the right way with the coil sequence reversed (bench test, 2026-11-21).
+CONFIG_FLIPCLOCK_REVERSE=y

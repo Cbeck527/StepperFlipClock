@@ -46,6 +46,10 @@ Copal 227, 1280 steps per 9 minutes), the longest pause (120 minutes), under
 "Stepper wiring" the coil GPIOs, the motor direction and the time between steps, and under
 "Real-time clock" the I2C GPIOs, the time zone and how often system time is set from the RTC.
 
+`sdkconfig.defaults` also turns on "Reverse the motor", because this clock's motor needed it
+on the first bench test. A setting changed in menuconfig lives in `esp32/sdkconfig`, which
+is not in git, so anything this clock needs belongs in `sdkconfig.defaults` too.
+
 ## Run the host tests
 
 The parts of the firmware written in plain C, the flip rules, the stepper's step
@@ -76,6 +80,20 @@ and `ls /dev/ttyACM*` on Linux.
 
 In the monitor, `Ctrl-T` then `Ctrl-R` restarts the board so you can see its boot messages
 again, and `Ctrl-]` leaves the monitor. Type `help` at the `flipclock>` prompt.
+
+### Known issue: line editing on ESP-IDF v6.1
+
+ESP-IDF v6.1.0 has a bug, [espressif/esp-idf#19366](https://github.com/espressif/esp-idf/issues/19366),
+that turns off line editing and history when the console is on the USB port. It shows as
+`Your terminal application does not support escape sequences` at boot, and the first line
+you type afterwards is refused with `Unrecognized command`. The cause: the console asks the
+terminal whether it understands escape sequences before the USB driver is running, so it
+never sees the answer, and the answer arrives later as if you had typed it.
+
+The firmware works around it by asking again once the driver is running. At boot you should
+see `console_cmds: Terminal answered the escape-sequence probe; line editing is on`, and no
+escape-sequence warning. If you see `line editing stays off` instead, the workaround did
+not help: press Enter once after each boot to clear the stray answer, and tell us.
 
 ## Bench procedure: first motor test
 
@@ -125,7 +143,7 @@ Press `Ctrl-T` then `Ctrl-R` if the boot messages have already scrolled past. Am
 you should see:
 
 ```text
-I (...) flipclock: Stepper on GPIO 18, 19, 20, 21 (IN1-IN4), 3000 us per step
+I (...) flipclock: Stepper on GPIO 18, 19, 20, 21 (IN1-IN4), 3000 us per step, reversed
 I (...) flipclock: Motor: 1280 steps per 9 minutes; pauses up to 120 minutes
 flipclock>
 ```
@@ -161,11 +179,17 @@ s 50
 **Expected:** a short whirr, then a line like `s 50: 50 steps in 147 ms, gap min 3005 us, max 3060 us`.
 Watch which way the card drum turns. Repeat `s 50` until a card drops.
 
+The firmware starts with "Reverse the motor" on, because that is what this clock needed;
+the boot line ends `3000 us per step, reversed`. On another clock the other direction may
+be right.
+
 - **Cards drop after a few repeats:** the direction is right. Go on to step 6.
 - **The drum turns the other way**, cards lift backwards, or nothing drops after six
   repeats: stop. Leave the monitor with `Ctrl-]`, run `idf.py menuconfig`, go to
   Flip clock → Stepper wiring, press the space bar on "Reverse the motor", then press `S`
   to save and `Q` to quit. Then run `idf.py flash monitor` again and repeat this step.
+  To make that stick for a fresh checkout, also change `CONFIG_FLIPCLOCK_REVERSE` in
+  `sdkconfig.defaults`.
   (Swapping the wires, IN1 with IN4 and IN2 with IN3, does the same job.)
 
 ### 6. One full cycle
