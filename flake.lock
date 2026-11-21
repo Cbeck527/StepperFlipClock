@@ -1,0 +1,45 @@
+{
+  "nodes": {
+    "esp-idf-nix": {
+      "inputs": {
+        "nixpkgs": "nixpkgs"
+      },
+      "locked": {
+        "lastModified": 1794529721,
+        "narHash": "sha256-9sTtG+4bARoMe0lD+50O2NsxJEd8V5+N+4bOl1PmSYs=",
+        "owner": "Cbeck527",
+        "repo": "esp-idf-nix",
+        "rev": "a00f59d98fdb35d4c3accaea586f7760c968c56f",
+        "type": "github"
+      },
+      "original": {
+        "owner": "Cbeck527",
+        "repo": "esp-idf-nix",
+        "type": "github"
+      }
+    },
+    "nixpkgs": {
+      "locked": {
+        "lastModified": 1774709303,
+        "narHash": "sha256-D3Q07BbIA2KnTcSXIqqu9P586uWxN74zNoCH3h2ESHg=",
+        "owner": "nixos",
+        "repo": "nixpkgs",
+        "rev": "8110df5ad7abf5d4c0f6fb0f8f978390e77f9685",
+        "type": "github"
+      },
+      "original": {
+        "owner": "nixos",
+        "ref": "nixos-unstable",
+        "repo": "nixpkgs",
+        "type": "github"
+      }
+    },
+    "root": {
+      "inputs": {
+        "esp-idf-nix": "esp-idf-nix"
+      }
+    }
+  },
+  "root": "root",
+  "version": 7
+}
