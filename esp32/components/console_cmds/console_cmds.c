@@ -6,6 +6,7 @@
 #include <time.h>
 #include <unistd.h>
 
+#include "clock_task.h"
 #include "clock_time.h"
 #include "ds3231.h"
 #include "esp_check.h"
@@ -82,6 +83,28 @@ static void print_now(void)
     } else {
         printf("Time is NOT trusted. Set it with: z <yyyymmddhhmmss>, in UTC\n");
     }
+
+    char display[128];
+    clock_task_describe(display, sizeof display);
+    printf("%s\n", display);
+}
+
+static int cmd_set_display(int argc, char **argv)
+{
+    int minute;
+    if (argc != 2 || !flip_parse_hhmm(argv[1], &minute)) {
+        printf("Usage: w HHMM, the time the display shows now, such as w 0905 or w 1742\n");
+        return 1;
+    }
+    esp_err_t err = clock_task_set_display(minute);
+    if (err != ESP_OK) {
+        printf("Saving it in the RTC failed (%s); the clock uses it until the next restart\n",
+               esp_err_to_name(err));
+    }
+    char text[128];
+    clock_task_describe(text, sizeof text);
+    printf("%s\n", text);
+    return err == ESP_OK ? 0 : 1;
 }
 
 static int cmd_now(int argc, char **argv)
@@ -151,7 +174,7 @@ esp_err_t console_cmds_register(uint32_t max_steps, uint32_t step_period_us)
     s_step_period_us = step_period_us;
     const esp_console_cmd_t step = {
         .command = "s",
-        .help = "Turn the motor <count> steps, bypassing the clock. 142 or 143 steps is one minute on "
+        .help = "Turn the motor <count> steps, bypassing the clock, which does not count them. 142 or 143 steps is one minute on "
                 "the Copal 227. Prints the steps taken and the shortest and longest gap between steps.",
         .hint = "<count>",
         .func = cmd_step,
@@ -160,7 +183,8 @@ esp_err_t console_cmds_register(uint32_t max_steps, uint32_t step_period_us)
 
     const esp_console_cmd_t now = {
         .command = "now",
-        .help = "Print the time in UTC and local time, what the RTC says, and whether the time is trusted.",
+        .help = "Print the time in UTC and local time, what the RTC says, whether the time is "
+                "trusted, and what the display shows.",
         .func = cmd_now,
     };
     ESP_RETURN_ON_ERROR(esp_console_cmd_register(&now), TAG, "registering now");
@@ -173,5 +197,14 @@ esp_err_t console_cmds_register(uint32_t max_steps, uint32_t step_period_us)
         .func = cmd_set_time,
     };
     ESP_RETURN_ON_ERROR(esp_console_cmd_register(&set_time), TAG, "registering z");
+
+    const esp_console_cmd_t set_display = {
+        .command = "w",
+        .help = "Tell the clock what the display shows now, as HHMM: w 1742. The clock then moves "
+                "it to local time and keeps it there. Use it after trimming with s.",
+        .hint = "<HHMM>",
+        .func = cmd_set_display,
+    };
+    ESP_RETURN_ON_ERROR(esp_console_cmd_register(&set_display), TAG, "registering w");
     return ESP_OK;
 }

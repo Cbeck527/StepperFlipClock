@@ -1,9 +1,9 @@
+#include "clock_task.h"
 #include "clock_time.h"
 #include "console_cmds.h"
 #include "esp_console.h"
 #include "esp_err.h"
 #include "esp_log.h"
-#include "flip_logic.h"
 #include "sdkconfig.h"
 #include "stepper.h"
 
@@ -40,13 +40,15 @@ void app_main(void)
     // Without the RTC the console still starts, so the wiring can be checked from it.
     clock_time_init(&clock_time);
 
-    // There is no display store yet, so assume the display shows 00:00.
-    flip_clock_t clock;
-    flip_clock_init(&clock, CONFIG_FLIPCLOCK_STEPS_PER_CYCLE, CONFIG_FLIPCLOCK_MINUTES_PER_CYCLE,
-                    CONFIG_FLIPCLOCK_MAX_PAUSE_MINUTES, 0);
+    const clock_task_config_t clock = {
+        .steps_per_cycle = CONFIG_FLIPCLOCK_STEPS_PER_CYCLE,
+        .minutes_per_cycle = CONFIG_FLIPCLOCK_MINUTES_PER_CYCLE,
+        .max_pause_minutes = CONFIG_FLIPCLOCK_MAX_PAUSE_MINUTES,
+    };
     ESP_LOGI(TAG, "Motor: %u steps per %u minutes; pauses up to %u minutes",
-             (unsigned)clock.cycle.steps_per_cycle, (unsigned)clock.cycle.minutes_per_cycle,
+             (unsigned)clock.steps_per_cycle, (unsigned)clock.minutes_per_cycle,
              (unsigned)clock.max_pause_minutes);
+    ESP_ERROR_CHECK(clock_task_start(&clock));
 
     esp_console_repl_t *repl = NULL;
     esp_console_repl_config_t repl_config = ESP_CONSOLE_REPL_CONFIG_DEFAULT();

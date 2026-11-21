@@ -10,11 +10,12 @@ menu "Flip clock"
 
     config FLIPCLOCK_MINUTES_PER_CYCLE
         int "Minutes per cycle"
-        range 1 1440
+        range 1 60
         default 9
         help
             Minutes the display advances in one full turn of the flip mechanism.
-            Copal 227: 9. GE 7-4305: 15.
+            Copal 227: 9. GE 7-4305: 15. At most 60, because the position in the
+            cycle is saved in 6 bits of the DS3231.
 
     config FLIPCLOCK_MAX_PAUSE_MINUTES
         int "Longest pause when the display is ahead, in minutes"

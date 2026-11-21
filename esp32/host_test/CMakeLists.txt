@@ -32,7 +32,20 @@ add_executable(test_ds3231_regs test_ds3231_regs.c "${COMPONENTS}/ds3231/ds3231_
 target_include_directories(test_ds3231_regs PRIVATE "${COMPONENTS}/ds3231/include")
 add_test(NAME ds3231_regs COMMAND test_ds3231_regs)
 
-foreach(test test_flip_logic test_stepper_core test_ds3231_regs)
+add_executable(test_display_store test_display_store.c "${COMPONENTS}/display_store/display_store_format.c")
+target_include_directories(test_display_store PRIVATE "${COMPONENTS}/display_store/include")
+add_test(NAME display_store COMMAND test_display_store)
+
+# clock_task.c against host stand-ins for FreeRTOS, logging, the stepper and the DS3231.
+add_executable(test_clock_task test_clock_task.c "${COMPONENTS}/flip_logic/flip_logic.c"
+               "${COMPONENTS}/display_store/display_store_format.c")
+target_include_directories(test_clock_task PRIVATE stubs
+    "${COMPONENTS}/clock_task/include" "${COMPONENTS}/clock_time/include"
+    "${COMPONENTS}/display_store/include" "${COMPONENTS}/ds3231/include"
+    "${COMPONENTS}/flip_logic/include" "${COMPONENTS}/stepper/include")
+add_test(NAME clock_task COMMAND test_clock_task)
+
+foreach(test test_flip_logic test_stepper_core test_ds3231_regs test_display_store test_clock_task)
     target_link_libraries(${test} PRIVATE unity)
     target_compile_options(${test} PRIVATE ${CHECKS})
     target_link_options(${test} PRIVATE -fsanitize=address,undefined)

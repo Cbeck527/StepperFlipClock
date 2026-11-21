@@ -28,6 +28,11 @@ void flip_cycle_init(flip_cycle_t *cycle, uint32_t steps_per_cycle, uint32_t min
 // For the Copal 227 (1280 steps per 9 minutes) that is 142 or 143.
 uint32_t flip_cycle_advance(flip_cycle_t *cycle);
 
+// Puts the cycle back at the start of a saved minute, 0 to minutes_per_cycle - 1, as after
+// that many calls to flip_cycle_advance() from the start. Returns false, changing nothing,
+// for a minute outside that range.
+bool flip_cycle_set_minute(flip_cycle_t *cycle, uint32_t minute);
+
 // What the display should do next, and why.
 typedef enum {
     FLIP_IDLE,        // No target is set, so the motor stays still.

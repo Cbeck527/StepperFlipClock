@@ -39,6 +39,25 @@ static void test_ge_7_4305_bursts_over_a_day(void)
     TEST_ASSERT_EQUAL_UINT32(96 * 2048, total); // 1440 minutes = 96 cycles of 15
 }
 
+// Restoring a saved cycle position gives the bursts the cycle would have given from there:
+// minute 4 is followed by 143, 142, 142, 142, 143 (see the Copal sequence above), then 142.
+static void test_cycle_set_minute_resumes_the_sequence(void)
+{
+    static const uint32_t expected[6] = {143, 142, 142, 142, 143, 142};
+    flip_cycle_t cycle;
+    flip_cycle_init(&cycle, 1280, 9);
+    TEST_ASSERT_TRUE(flip_cycle_set_minute(&cycle, 4));
+    TEST_ASSERT_EQUAL_UINT32(568, cycle.step); // floor(4 * 1280 / 9)
+    for (int i = 0; i < 6; i++) {
+        TEST_ASSERT_EQUAL_UINT32(expected[i], flip_cycle_advance(&cycle));
+    }
+    TEST_ASSERT_TRUE(flip_cycle_set_minute(&cycle, 8));
+    TEST_ASSERT_EQUAL_UINT32(143, flip_cycle_advance(&cycle));
+    TEST_ASSERT_EQUAL_UINT32(0, cycle.step);
+    TEST_ASSERT_FALSE(flip_cycle_set_minute(&cycle, 9));
+    TEST_ASSERT_EQUAL_UINT32(0, cycle.minute);
+}
+
 // The expected values below come from running the original sketch on the host
 // (the hostsim harness) or are worked out by hand in the comments.
 
@@ -307,6 +326,7 @@ int main(void)
     UNITY_BEGIN();
     RUN_TEST(test_copal_227_bursts_over_two_cycles);
     RUN_TEST(test_ge_7_4305_bursts_over_a_day);
+    RUN_TEST(test_cycle_set_minute_resumes_the_sequence);
     RUN_TEST(test_normal_running_flips_once_a_minute);
     RUN_TEST(test_display_counts_a_minute_after_its_burst);
     RUN_TEST(test_midnight_wraps_to_zero);

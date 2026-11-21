@@ -3,10 +3,12 @@
 An ESP-IDF v6.1 port of `../BurstClockSerialDS3231_copal227`, which stays as the reference.
 The port plan is in [the ESP-IDF port plan](https://ampcode.com/artifacts/esp-idf-port-plan-cc1a787b-1f3b-4367-b82d-5e005d4a7ae6).
 
-So far the app boots, sets its clock from the DS3231 real-time clock, drives the stepper
-motor, and runs a console on the C6's built-in USB port. The commands are `help`,
-`s <count>` to turn the motor, `now` to show the time, and `z <yyyymmddhhmmss>` to set the
-RTC in UTC. Flipping the display to the time, and the other commands, come in later phases.
+The app sets its clock from the DS3231 real-time clock at boot, keeps the flip display on
+local time by itself, saves what the display shows in the DS3231 so it survives a power cut,
+and runs a console on the C6's built-in USB port. The commands are `help`, `s <count>` to
+turn the motor by hand, `w <HHMM>` to tell the clock what the display shows, `now` to show
+the time and the display, and `z <yyyymmddhhmmss>` to set the RTC in UTC. The panel (alarm
+switch and backlight) and the remaining commands come in later phases.
 
 The defaults assume a Seeed Studio XIAO ESP32C6, but any ESP32-C6 board works: every pin is
 a menuconfig option.
@@ -53,7 +55,8 @@ is not in git, so anything this clock needs belongs in `sdkconfig.defaults` too.
 ## Run the host tests
 
 The parts of the firmware written in plain C, the flip rules, the stepper's step
-sequencing and the DS3231's register format, have unit tests that build and run on your computer with no board attached:
+sequencing, the DS3231's register format, the format of the saved display and
+the clock task's handling of failed saves, have unit tests that build and run on your computer with no board attached:
 
 ```fish
 cd esp32/host_test
@@ -373,3 +376,135 @@ Paste these into the thread:
 6. Optional: if you leave the board running for a few hours, it logs
    `Resynced from the RTC; system time was ... ms off` every hour. Paste a few of those;
    they show how fast the C6's own clock drifts.
+
+## Bench procedure: the clock
+
+This checks that the clock moves the display to local time and keeps it there, that it
+remembers what the display shows when the power goes off, both while it is idle and while
+the motor is running, and that line editing works in the console. It takes about 30
+minutes, plus up to two hours of waiting if the display is ahead of the time (step 2
+explains). You need the motor and the RTC wired as in the two procedures above, the coin
+cell in, and a phone showing the correct time.
+
+How the clock behaves, so you know what to expect: once a minute, when the local time's
+minute changes, the motor turns for about half a second and one card drops. If the display
+is behind, it flips one minute after another, about 0.43 s each, until it has caught up. If
+the display is ahead by up to 120 minutes it waits for the time to catch up, because a flip
+clock cannot go backwards. If it is further ahead than that, it winds forward the long way
+round. It never moves while the time is not trusted, or while it does not know what the
+display shows. It also stops if it cannot save to the RTC, because it marks the
+display as changing in the RTC before every burst. Then the log shows `E (...) clock_task:
+Saving the display in the RTC failed (...): the display stops until the RTC answers again`
+once, `now` ends with `Display 18:02, stopped: saving it in the RTC fails`, and when the RTC
+answers again the log says `Saving the display in the RTC works again` and the display
+catches up.
+
+### 1. Flash and boot
+
+```fish
+cd esp32
+git pull
+idf.py build
+idf.py flash monitor
+```
+
+Press `Ctrl-T` then `Ctrl-R` to see the boot from the start. Because the DS3231 still holds
+what the Nano version last saved, which is out of date since the motor test moved the
+display, look for:
+
+```text
+I (...) console_cmds: Terminal answered the escape-sequence probe; line editing is on
+W (...) clock_task: The saved display, 17:12, is from the Arduino version and probably stale
+W (...) clock_task: Check what the display shows, then set it with: w HHMM
+I (...) clock_task: Not moving the display: what it shows is unknown; set it with w HHMM
+```
+
+The times will be different. **The motor must not move yet.**
+
+**Console check:** the `line editing is on` line is there, the boot does **not** say `Your
+terminal application does not support escape sequences`, and the first command you type
+works. Type `now` as the first command: it should print the time and end with a line like
+`Display unknown: 17:12 was saved by the Arduino version. Set it with: w HHMM`, not
+`Unrecognized command`. Then press the up arrow: `now` should come back on the prompt line.
+Press `Ctrl-U` to clear it. If you see `line editing stays off` instead, note it for the
+send-back list and press Enter once after each boot from here on.
+
+### 2. Tell the clock what the display shows
+
+Read the display. If a card is partly down, turn the motor a little with `s 20`, repeated
+until it has dropped, and read the display again. Then type what it shows, as four digits
+on the 24-hour clock. For a display showing 6:02 in the evening:
+
+```text
+w 1802
+```
+
+What happens next depends on where the display is compared to local time:
+
+- **Behind** (the usual case): the cards start flipping at once, about two a second, with a
+  log like `Display 18:02 is 25 minutes behind 18:27: catching up`, and when it has caught
+  up, `Display 18:27 after 25 flips, 3555 steps` (3555 or 3556). **Check:** the display now matches your
+  phone.
+- **Ahead** by up to 120 minutes, which is likely after the five `s 1280` of the motor test:
+  `Display 18:47 is 45 minutes ahead of 18:02: waiting for the time to catch up`. Nothing
+  moves until local time reaches the display. That is correct; leave it running and come
+  back when your phone shows the display's time.
+- **Ahead by more than 120 minutes**: a warning with `winding forward`, and it flips for a
+  long time, about nine minutes for 21 hours. That is the rule the original clock
+  had too. If you did not expect it, check that you typed the right `w`.
+
+### 3. Follow the time for five minutes
+
+Once the display matches your phone, watch it across five minute changes.
+
+**Check:** each time your phone's minute changes, one card drops within about a second, and
+the log shows one line per minute, like `clock_task: Display 18:28 after 1 flip, 142 steps`,
+with 142 or 143 steps. Type `now`; its last line should say `Display 18:28, following local
+time`.
+
+### 4. Power cut while idle
+
+1. Between two minute changes, while the motor is quiet, leave the monitor with `Ctrl-]` and
+   unplug the USB cable. Note the time the display shows.
+2. Wait about ten minutes, then plug the cable back in and run `idf.py monitor`. Press
+   `Ctrl-T` then `Ctrl-R` if you missed the boot.
+
+**Expected:** the boot shows `Display 18:31, minute 4 of the cycle, as saved` with the time
+the display showed when you unplugged it (the cycle minute is any number from 0 to 8), then
+`is 10 minutes behind ...: catching up`, about four seconds of flipping, and `after 10 flips`
+with 1422 or 1423 steps. The display matches your phone again, without you typing `w`.
+
+### 5. Power cut while the motor is running
+
+This needs a burst long enough to pull the plug during it, so it uses the catch-up after an
+unplug again.
+
+1. Leave the monitor with `Ctrl-]`, unplug the cable, and wait about ten minutes.
+2. Plug it back in **without** the monitor running, and pull it out again about two seconds
+   later, while the cards are flipping.
+3. Plug it back in and run `idf.py monitor`, then press `Ctrl-T` then `Ctrl-R`.
+
+**Expected:** the boot shows
+`Power was lost while the display was changing from 18:35 to 18:36` (some pair of times
+during the catch-up), followed by `Check what the display shows, then set it with: w HHMM`,
+and the motor does not move. Read the display; if a card is partly down, use `s 20` until it
+drops, as in step 2. Then type `w` with what it shows. **Expected:** it catches up to your
+phone and then follows it as in step 3.
+
+If the boot says `as saved` instead, the cut landed between two bursts. Say so in the
+send-back list; it does not mean anything is wrong, but try step 5 once more.
+
+### 6. Send back
+
+Paste these into the thread:
+
+1. The boot lines from step 1 that start with `console_cmds` or `clock_task`, and whether
+   the first `now` worked and the up arrow brought it back.
+2. The `w` you typed in step 2 and the `clock_task` lines that followed.
+3. The `clock_task` lines from step 3, and whether every card dropped when your phone's
+   minute changed.
+4. The `clock_task` boot lines from step 4, and whether the display matched your phone
+   afterwards.
+5. The `clock_task` boot lines from step 5, whether a card was partly down, how many `s 20`
+   it took, and the lines after your `w`.
+6. Anything the display did that this procedure did not lead you to expect.

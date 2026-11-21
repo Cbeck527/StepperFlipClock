@@ -23,6 +23,16 @@ uint32_t flip_cycle_advance(flip_cycle_t *cycle)
     return steps;
 }
 
+bool flip_cycle_set_minute(flip_cycle_t *cycle, uint32_t minute)
+{
+    if (minute >= cycle->minutes_per_cycle) {
+        return false;
+    }
+    cycle->minute = minute;
+    cycle->step = minute * cycle->steps_per_cycle / cycle->minutes_per_cycle;
+    return true;
+}
+
 static bool is_minute_of_day(int minute)
 {
     return minute >= 0 && minute < FLIP_MINUTES_PER_DAY;
