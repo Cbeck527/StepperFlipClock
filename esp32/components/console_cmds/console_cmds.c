@@ -55,6 +55,13 @@ static void print_tm(const char *label, const struct tm *tm, const char *format)
     printf("%-6s %s\n", label, text);
 }
 
+static void print_display(void)
+{
+    char text[160];
+    clock_task_describe(text, sizeof text);
+    printf("%s\n", text);
+}
+
 // Prints system time in UTC and local time, what the RTC says, and whether the time is trusted.
 static void print_now(void)
 {
@@ -84,9 +91,7 @@ static void print_now(void)
         printf("Time is NOT trusted. Set it with: z <yyyymmddhhmmss>, in UTC\n");
     }
 
-    char display[128];
-    clock_task_describe(display, sizeof display);
-    printf("%s\n", display);
+    print_display();
 }
 
 static int cmd_set_display(int argc, char **argv)
@@ -101,10 +106,32 @@ static int cmd_set_display(int argc, char **argv)
         printf("Saving it in the RTC failed (%s); the clock uses it until the next restart\n",
                esp_err_to_name(err));
     }
-    char text[128];
-    clock_task_describe(text, sizeof text);
-    printf("%s\n", text);
+    print_display();
     return err == ESP_OK ? 0 : 1;
+}
+
+static int cmd_hold(int argc, char **argv)
+{
+    int minute;
+    if (argc != 2 || !flip_parse_hhmm(argv[1], &minute)) {
+        printf("Usage: d HHMM, the time to move the display to and keep it at, such as d 0905\n");
+        return 1;
+    }
+    clock_task_hold(minute);
+    print_display();
+    return 0;
+}
+
+static int cmd_follow(int argc, char **argv)
+{
+    uint32_t on;
+    if (argc != 2 || !flip_parse_uint(argv[1], 0, 1, &on)) {
+        printf("Usage: t 1 to follow local time, t 0 to stop the display where it is\n");
+        return 1;
+    }
+    clock_task_follow(on == 1);
+    print_display();
+    return 0;
 }
 
 static int cmd_now(int argc, char **argv)
@@ -206,5 +233,23 @@ esp_err_t console_cmds_register(uint32_t max_steps, uint32_t step_period_us)
         .func = cmd_set_display,
     };
     ESP_RETURN_ON_ERROR(esp_console_cmd_register(&set_display), TAG, "registering w");
+
+    const esp_console_cmd_t hold = {
+        .command = "d",
+        .help = "Move the display forward to HHMM and keep it there instead of following local "
+                "time: d 0905. t 1 follows local time again, and so does every restart.",
+        .hint = "<HHMM>",
+        .func = cmd_hold,
+    };
+    ESP_RETURN_ON_ERROR(esp_console_cmd_register(&hold), TAG, "registering d");
+
+    const esp_console_cmd_t follow = {
+        .command = "t",
+        .help = "t 1 makes the display follow local time, which it does after every restart. "
+                "t 0 stops it where it is.",
+        .hint = "<0|1>",
+        .func = cmd_follow,
+    };
+    ESP_RETURN_ON_ERROR(esp_console_cmd_register(&follow), TAG, "registering t");
     return ESP_OK;
 }

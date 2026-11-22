@@ -28,6 +28,15 @@ static bool s_load_failed;
 static flip_action_t s_action = NO_ACTION; // The last decision, for logging changes.
 static uint32_t s_run_flips, s_run_steps;
 static bool s_store_failing; // The last write to the DS3231 failed, so the display is stopped.
+static uint32_t s_max_pause_minutes;
+
+// What the display is driven to once it is known. Every boot starts with FOLLOW.
+static enum {
+    FOLLOW,  // Local time, while the time is trusted.
+    HOLD,    // s_hold, set with d, whatever the time.
+    STOPPED, // Nowhere, after t 0.
+} s_mode;
+static int s_hold;
 
 #define HHMM_LEN 8 // "HH:MM" and room the compiler can prove is enough.
 
@@ -51,10 +60,18 @@ static int local_minute_of_day(void)
     return tm.tm_hour * 60 + tm.tm_min;
 }
 
-// The minute the display should show: local time, or none when the clock must not move.
-static int target(void)
+// Points clock at the minute the display should show, or at none when it must not move.
+static void aim(flip_clock_t *clock)
 {
-    return s_known && clock_time_trusted() ? local_minute_of_day() : FLIP_NO_TARGET;
+    int target = FLIP_NO_TARGET;
+    if (s_known && s_mode == FOLLOW && clock_time_trusted()) {
+        target = local_minute_of_day();
+    } else if (s_known && s_mode == HOLD) {
+        target = s_hold;
+    }
+    flip_clock_set_target(clock, target);
+    // Waiting only makes sense for a target that moves. A held one is reached going forward.
+    clock->max_pause_minutes = s_mode == HOLD ? 0 : s_max_pause_minutes;
 }
 
 // Says what the display shows and where the clock is taking it, for the log and for now.
@@ -65,6 +82,19 @@ static void explain(char *text, size_t size, const flip_clock_t *clock, flip_act
     format_minute(display, clock->display);
     format_minute(goal, clock->target);
     int behind = (clock->target - clock->display + FLIP_MINUTES_PER_DAY) % FLIP_MINUTES_PER_DAY;
+    if (s_mode == STOPPED) {
+        snprintf(text, size, "Display %s, stopped with t 0. t 1 follows local time again", display);
+        return;
+    }
+    if (s_mode == HOLD) {
+        if (action == FLIP_ON_TIME) {
+            snprintf(text, size, "Display %s, held there by d. t 1 follows local time again", display);
+        } else {
+            snprintf(text, size, "Display %s is moving forward %d minutes to %s, set with d", display,
+                     behind, goal);
+        }
+        return;
+    }
     switch (action) {
     case FLIP_IDLE:
         snprintf(text, size, "Display %s, not moving: the time is not trusted", display);
@@ -110,9 +140,10 @@ static void report(flip_action_t action)
     }
     char text[160];
     explain(text, sizeof text, &s_clock, action);
-    if (action == FLIP_IDLE) {
-        ESP_LOGI(TAG, "Not moving the display: %s",
-                 s_known ? "the time is not trusted" : "what it shows is unknown; set it with w HHMM");
+    if (!s_known) {
+        ESP_LOGI(TAG, "Not moving the display: what it shows is unknown; set it with w HHMM");
+    } else if (action == FLIP_IDLE && s_mode == FOLLOW) {
+        ESP_LOGI(TAG, "Not moving the display: the time is not trusted");
     } else if (action == FLIP_WIND_AROUND) {
         ESP_LOGW(TAG, "%s", text);
     } else {
@@ -154,7 +185,7 @@ static void pass(void)
         };
         saved(display_store_commit(&done));
     }
-    flip_clock_set_target(&s_clock, target());
+    aim(&s_clock);
     flip_next_t next = flip_clock_update(&s_clock);
     if (next.steps > 0) {
         // Nothing moves until the saved record says the display is changing. Otherwise a power
@@ -190,6 +221,12 @@ esp_err_t clock_task_start(const clock_task_config_t *config)
 {
     s_lock = xSemaphoreCreateMutex();
     ESP_RETURN_ON_FALSE(s_lock, ESP_ERR_NO_MEM, TAG, "creating the lock");
+    s_known = false;
+    s_mode = FOLLOW;
+    s_action = NO_ACTION;
+    s_store_failing = false;
+    s_run_flips = s_run_steps = 0;
+    s_max_pause_minutes = config->max_pause_minutes;
     flip_clock_init(&s_clock, config->steps_per_cycle, config->minutes_per_cycle,
                     config->max_pause_minutes, 0);
 
@@ -282,8 +319,28 @@ void clock_task_describe(char *text, size_t size)
         // What the next pass would decide now, on a copy, so the answer holds at this moment
         // rather than at the last pass. A burst that has handed out its steps counts as done.
         flip_clock_t plan = s_clock;
-        flip_clock_set_target(&plan, target());
+        aim(&plan);
         explain(text, size, &plan, flip_clock_update(&plan).action);
     }
+    xSemaphoreGive(s_lock);
+}
+
+esp_err_t clock_task_hold(int minute_of_day)
+{
+    ESP_RETURN_ON_FALSE(minute_of_day >= 0 && minute_of_day < FLIP_MINUTES_PER_DAY,
+                        ESP_ERR_INVALID_ARG, TAG, "minute of day out of range");
+    xSemaphoreTake(s_lock, portMAX_DELAY);
+    s_mode = HOLD;
+    s_hold = minute_of_day;
+    s_action = NO_ACTION;
+    xSemaphoreGive(s_lock);
+    return ESP_OK;
+}
+
+void clock_task_follow(bool follow)
+{
+    xSemaphoreTake(s_lock, portMAX_DELAY);
+    s_mode = follow ? FOLLOW : STOPPED;
+    s_action = NO_ACTION;
     xSemaphoreGive(s_lock);
 }

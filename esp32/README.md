@@ -6,9 +6,12 @@ The port plan is in [the ESP-IDF port plan](https://ampcode.com/artifacts/esp-id
 The app sets its clock from the DS3231 real-time clock at boot, keeps the flip display on
 local time by itself, saves what the display shows in the DS3231 so it survives a power cut,
 and runs a console on the C6's built-in USB port. The commands are `help`, `s <count>` to
-turn the motor by hand, `w <HHMM>` to tell the clock what the display shows, `now` to show
-the time and the display, and `z <yyyymmddhhmmss>` to set the RTC in UTC. The panel (alarm
-switch and backlight) and the remaining commands come in later phases.
+turn the motor by hand, `w <HHMM>` to tell the clock what the display shows, `d <HHMM>` to
+move the display to a fixed time and keep it there, `t 0` to stop the display and `t 1` to
+make it follow local time again, `now` to show the time and the display, and
+`z <yyyymmddhhmmss>` to set the RTC in UTC. Every restart follows local time, whatever `d`
+or `t` said before. The panel (alarm switch and backlight) and the `b` backlight command
+come in a later phase.
 
 The defaults assume a Seeed Studio XIAO ESP32C6, but any ESP32-C6 board works: every pin is
 a menuconfig option.
@@ -514,3 +517,116 @@ Paste these into the thread:
 5. The `clock_task` boot lines from step 5, whether a card was partly down, how many `s 20`
    it took, and the lines after your `w`.
 6. Anything the display did that this procedure did not lead you to expect.
+
+## Bench procedure: d, t and line endings
+
+This checks that `d` and `t` do what they say, that bad times are refused, and that
+commands work whichever line ending your terminal sends. It takes about 15 minutes. Start
+with the clock following local time, as at the end of the clock procedure.
+
+### 1. Flash and boot
+
+```fish
+cd esp32
+git pull
+idf.py build
+idf.py flash monitor
+```
+
+**Expected:** the boot shows `Display 19:10, minute 4 of the cycle, as saved` (your time),
+and the display catches up to your phone by itself if it fell behind while flashing.
+
+### 2. Bad times are refused
+
+Type each of these. Each should print a `Usage:` line, and nothing should move:
+
+```text
+d 9999
+w 9999
+d 2400
+w 1260
+d 123
+t 2
+t
+```
+
+Then type `now`. **Expected:** its last line still says `following local time`.
+
+### 3. Hold the display with d
+
+Read the time on the display and type `d` with three minutes later. For a display showing
+19:10:
+
+```text
+d 1913
+```
+
+**Expected:** it prints `Display 19:10 is moving forward 3 minutes to 19:13, set with d`,
+three cards drop in about a second and a half, and the log says
+`Display 19:13 after 3 flips, 426 steps` (426 or 427). Then wait for your phone's minute to
+change twice. **Expected:** no card drops, and `now` ends with
+`Display 19:13, held there by d. t 1 follows local time again`.
+
+Do not try `d` with a time earlier than the display: the clock goes forward the long way
+round to reach it, which takes about ten minutes of flipping.
+
+### 4. Stop and follow with t
+
+```text
+t 0
+```
+
+**Expected:** `Display 19:13, stopped with t 0. t 1 follows local time again`, and nothing
+moves when your phone's minute changes.
+
+```text
+t 1
+```
+
+**Expected:** a line saying either `waiting for the time to catch up`, if your phone is
+still before the display's time, or `catching up`. Within a few minutes the display matches
+your phone again, and `now` ends with `following local time`.
+
+### 5. Line endings
+
+`idf.py monitor` always sends a carriage return (CR) for Enter, and has no option to change
+that, so this step runs the monitor program directly to check the other two endings a
+terminal can send. It needs the board's serial port name. The first line `idf.py monitor`
+printed shows it, for example:
+
+```text
+--- esp-idf-monitor 1.10.0 on /dev/cu.usbmodem1101 115200
+```
+
+On macOS it looks like `/dev/cu.usbmodem…`, on Linux like `/dev/ttyACM0`. Leave the monitor
+with `Ctrl-]`, then, in the same terminal with ESP-IDF activated and still in `esp32`, put
+your port in place of the example:
+
+```fish
+set port /dev/cu.usbmodem1101
+python -m esp_idf_monitor --port $port --target esp32c6 --eol CRLF build/flipclock.elf
+```
+
+It should open with the same `--- esp-idf-monitor ... on` line. If it says `Connection to
+... failed`, the port name is wrong: it lists the ports it can see. Type `now`, then `w`
+followed by what the display shows, such as `w 1915`. **Expected:** both work as before,
+with no `Unrecognized command` and no `Usage:` line. With CRLF an extra empty `flipclock>`
+prompt may appear after each command: the firmware reads the CR as Enter and the LF as a
+second, empty Enter, which it ignores. Leave with `Ctrl-]` and do the same with LF:
+
+```fish
+python -m esp_idf_monitor --port $port --target esp32c6 --eol LF build/flipclock.elf
+```
+
+### 6. Send back
+
+Paste these into the thread:
+
+1. The `clock_task` boot lines from step 1.
+2. The output of every command in step 2, and the `now` after them.
+3. What `d` printed in step 3, the `clock_task` lines after it, and whether any card dropped
+   while it was held.
+4. What `t 0` and `t 1` printed in step 4, the `clock_task` lines after `t 1`, and whether the
+   display matched your phone afterwards.
+5. The port name you used, and the output of `now` and `w` from both monitors in step 5,
+   and whether CRLF showed the extra empty prompt.

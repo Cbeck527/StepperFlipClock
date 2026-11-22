@@ -2,8 +2,11 @@
 
 // The clock itself: a task that every 10 ms drives the display towards local time, one
 // minute per motor burst, and saves what the display shows in the DS3231. It moves the
-// display only when the time is trusted and it knows what the display shows.
+// display only when it knows what the display shows, and follows local time only when the
+// time is trusted. clock_task_hold() and clock_task_follow() change where it drives the
+// display until the next restart, which always starts following local time.
 
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 
@@ -23,6 +26,14 @@ esp_err_t clock_task_start(const clock_task_config_t *config);
 // Records what the display shows, minute of day 0 to 1439, after someone reads it. Waits for
 // a burst in progress to finish first. From then on the clock moves it when needed.
 esp_err_t clock_task_set_display(int minute_of_day);
+
+// Drives the display forward to minute_of_day, 0 to 1439, and keeps it there instead of
+// following local time. It goes forward even when that is the long way round, and does not
+// need trusted time. Waits for clock_task_set_display() if the display is unknown.
+esp_err_t clock_task_hold(int minute_of_day);
+
+// true follows local time again; false stops the display where it is.
+void clock_task_follow(bool follow);
 
 // Writes one line saying what the display shows and what the clock is doing with it.
 void clock_task_describe(char *text, size_t size);

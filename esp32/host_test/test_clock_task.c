@@ -191,6 +191,72 @@ static void test_now_is_true_at_every_moment(void)
     assert_now("Display 14:31, not moving: the time is not trusted");
 }
 
+#define HM(h, m) ((h) * 60 + (m))
+
+// d moves the display to a fixed time and keeps it there, t 0 stops it, t 1 and every
+// restart go back to local time. Local time is 12:00; setUp leaves the display at 11:55.
+static void test_d_holds_t_stops_and_a_restart_follows(void)
+{
+    passes(6);
+    assert_now("Display 12:00, following local time");
+    TEST_ASSERT_EQUAL_UINT32(5, s_moves);
+
+    // 15 minutes behind the display: local time would wait, a held time goes the long way.
+    clock_task_hold(HM(11, 45));
+    assert_now("Display 12:00 is moving forward 1425 minutes to 11:45, set with d");
+    pass();
+    assert_now("Display 12:01 is moving forward 1424 minutes to 11:45, set with d");
+    passes(1424);
+    assert_now("Display 11:45, held there by d. t 1 follows local time again");
+    passes(5);
+    TEST_ASSERT_EQUAL_UINT32(5 + 1425, s_moves);
+
+    // A held time does not depend on the time of day, so it moves without trusted time.
+    s_trusted = false;
+    clock_task_hold(HM(11, 50));
+    passes(6);
+    assert_now("Display 11:50, held there by d. t 1 follows local time again");
+    TEST_ASSERT_EQUAL_UINT32(5 + 1425 + 5, s_moves);
+    s_trusted = true;
+
+    clock_task_follow(false);
+    assert_now("Display 11:50, stopped with t 0. t 1 follows local time again");
+    passes(5);
+    TEST_ASSERT_EQUAL_UINT32(1435, s_moves);
+
+    clock_task_follow(true);
+    assert_now("Display 11:50 is 10 minutes behind 12:00: catching up");
+    passes(11);
+    assert_now("Display 12:00, following local time");
+    TEST_ASSERT_EQUAL_UINT32(1445, s_moves);
+
+    // Nothing about d or t is saved: a restart follows local time.
+    clock_task_hold(HM(13, 0));
+    const clock_task_config_t config = {COPAL_STEPS, COPAL_MINUTES, 120};
+    TEST_ASSERT_EQUAL_INT(ESP_OK, clock_task_start(&config));
+    assert_now("Display 12:00, following local time");
+    passes(3);
+    TEST_ASSERT_EQUAL_UINT32(1445, s_moves);
+}
+
+// d does not move a display nobody has read, and w keeps the held time.
+static void test_d_waits_for_w(void)
+{
+    memset(s_regs, 0, sizeof s_regs);
+    const clock_task_config_t config = {COPAL_STEPS, COPAL_MINUTES, 120};
+    TEST_ASSERT_EQUAL_INT(ESP_OK, clock_task_start(&config));
+    clock_task_hold(HM(12, 30));
+    passes(5);
+    TEST_ASSERT_EQUAL_UINT32(0, s_moves);
+    assert_now("Display unknown: nothing usable is saved. Set it with: w HHMM");
+
+    clock_task_set_display(HM(12, 0));
+    assert_now("Display 12:00 is moving forward 30 minutes to 12:30, set with d");
+    passes(31);
+    TEST_ASSERT_EQUAL_UINT32(30, s_moves);
+    assert_now("Display 12:30, held there by d. t 1 follows local time again");
+}
+
 int main(void)
 {
     setenv("TZ", "UTC0", 1);
@@ -199,5 +265,7 @@ int main(void)
     RUN_TEST(test_failed_changing_mark_keeps_the_motor_still);
     RUN_TEST(test_failure_mid_catch_up_never_leaves_a_wrong_known_record);
     RUN_TEST(test_now_is_true_at_every_moment);
+    RUN_TEST(test_d_holds_t_stops_and_a_restart_follows);
+    RUN_TEST(test_d_waits_for_w);
     return UNITY_END();
 }
