@@ -33,11 +33,13 @@ void stepper_add(uint32_t steps)
     s_moves++;
 }
 bool stepper_is_busy(void) { return false; }
-bool clock_time_trusted(void) { return true; }
+static bool s_trusted;
+bool clock_time_trusted(void) { return s_trusted; }
 
-esp_err_t display_store_load(uint32_t minutes_per_cycle, display_store_status_t *status,
-                             display_record_t *record)
+esp_err_t display_store_load(uint32_t minutes_per_cycle, uint8_t regs[DISPLAY_STORE_LEN],
+                             display_store_status_t *status, display_record_t *record)
 {
+    memcpy(regs, s_regs, DISPLAY_STORE_LEN);
     *status = display_store_decode(s_regs, minutes_per_cycle, record);
     return ESP_OK;
 }
@@ -76,6 +78,7 @@ static void assert_store_safe(void)
 void setUp(void)
 {
     s_moves = 0;
+    s_trusted = true;
     s_write_err = ESP_OK;
     stub_log_errors = 0;
     // A record saved five minutes ago, so the clock wants to catch up.
@@ -134,6 +137,60 @@ static void test_failure_mid_catch_up_never_leaves_a_wrong_known_record(void)
     TEST_ASSERT_EQUAL_INT(1, stub_log_errors);
 }
 
+static void assert_now(const char *expected)
+{
+    char text[160];
+    clock_task_describe(text, sizeof text);
+    TEST_ASSERT_EQUAL_STRING(expected, text);
+}
+
+static void passes(int count)
+{
+    for (int i = 0; i < count; i++) {
+        pass();
+    }
+}
+
+// What w and now print must hold when they print it. Local time is 12:00 throughout, and each
+// pass finishes a burst, as the motor would between two passes.
+static void test_now_is_true_at_every_moment(void)
+{
+    // The owner's bench: the last pass before w saw no usable target.
+    s_trusted = false;
+    pass();
+    s_trusted = true;
+
+    TEST_ASSERT_EQUAL_INT(ESP_OK, clock_task_set_display(6 * 60 + 45));
+    assert_now("Display 06:45 is 315 minutes behind 12:00: catching up");
+    pass(); // The first flip is under way.
+    assert_now("Display 06:46 is 314 minutes behind 12:00: catching up");
+    passes(299);
+    assert_now("Display 11:45 is 15 minutes behind 12:00: catching up");
+    passes(15);
+    assert_now("Display 12:00, following local time");
+    passes(3);
+    assert_now("Display 12:00, following local time");
+    TEST_ASSERT_EQUAL_UINT32(315, s_moves);
+
+    clock_task_set_display(11 * 60 + 59); // Each minute's normal flip.
+    assert_now("Display 11:59, following local time");
+
+    clock_task_set_display(12 * 60 + 30);
+    assert_now("Display 12:30 is 30 minutes ahead of 12:00: waiting for the time to catch up");
+    passes(3);
+    assert_now("Display 12:30 is 30 minutes ahead of 12:00: waiting for the time to catch up");
+
+    clock_task_set_display(14 * 60 + 30);
+    assert_now("Display 14:30 is 150 minutes ahead of 12:00, more than the 120-minute pause: "
+               "winding forward 1290 minutes");
+    pass();
+    assert_now("Display 14:31 is 151 minutes ahead of 12:00, more than the 120-minute pause: "
+               "winding forward 1289 minutes");
+
+    s_trusted = false;
+    assert_now("Display 14:31, not moving: the time is not trusted");
+}
+
 int main(void)
 {
     setenv("TZ", "UTC0", 1);
@@ -141,5 +198,6 @@ int main(void)
     UNITY_BEGIN();
     RUN_TEST(test_failed_changing_mark_keeps_the_motor_still);
     RUN_TEST(test_failure_mid_catch_up_never_leaves_a_wrong_known_record);
+    RUN_TEST(test_now_is_true_at_every_moment);
     return UNITY_END();
 }

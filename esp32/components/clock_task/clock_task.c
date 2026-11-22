@@ -26,7 +26,6 @@ static display_store_status_t s_saved_status; // What the DS3231 held at boot.
 static display_record_t s_saved;
 static bool s_load_failed;
 static flip_action_t s_action = NO_ACTION; // The last decision, for logging changes.
-static int s_target = FLIP_NO_TARGET;
 static uint32_t s_run_flips, s_run_steps;
 static bool s_store_failing; // The last write to the DS3231 failed, so the display is stopped.
 
@@ -37,6 +36,11 @@ static void format_minute(char text[HHMM_LEN], int minute)
 {
     unsigned m = (unsigned)((minute % FLIP_MINUTES_PER_DAY + FLIP_MINUTES_PER_DAY) % FLIP_MINUTES_PER_DAY);
     snprintf(text, HHMM_LEN, "%02u:%02u", m / 60 % 24, m % 60);
+}
+
+static int next_minute(int minute)
+{
+    return (minute + 1) % FLIP_MINUTES_PER_DAY;
 }
 
 static int local_minute_of_day(void)
@@ -53,13 +57,45 @@ static int target(void)
     return s_known && clock_time_trusted() ? local_minute_of_day() : FLIP_NO_TARGET;
 }
 
+// Says what the display shows and where the clock is taking it, for the log and for now.
+// action is what flip_clock_update() just decided for clock.
+static void explain(char *text, size_t size, const flip_clock_t *clock, flip_action_t action)
+{
+    char display[HHMM_LEN], goal[HHMM_LEN];
+    format_minute(display, clock->display);
+    format_minute(goal, clock->target);
+    int behind = (clock->target - clock->display + FLIP_MINUTES_PER_DAY) % FLIP_MINUTES_PER_DAY;
+    switch (action) {
+    case FLIP_IDLE:
+        snprintf(text, size, "Display %s, not moving: the time is not trusted", display);
+        break;
+    case FLIP_ADVANCE:
+        if (clock->target != next_minute(clock->display)) { // Not each minute's normal flip.
+            snprintf(text, size, "Display %s is %d minutes behind %s: catching up", display, behind, goal);
+            break;
+        }
+        // Fall through.
+    case FLIP_ON_TIME:
+        snprintf(text, size, "Display %s, following local time", display);
+        break;
+    case FLIP_PAUSE:
+        snprintf(text, size, "Display %s is %d minutes ahead of %s: waiting for the time to catch up",
+                 display, FLIP_MINUTES_PER_DAY - behind, goal);
+        break;
+    case FLIP_WIND_AROUND:
+        snprintf(text, size, "Display %s is %d minutes ahead of %s, more than the %u-minute pause: "
+                 "winding forward %d minutes",
+                 display, FLIP_MINUTES_PER_DAY - behind, goal, (unsigned)clock->max_pause_minutes, behind);
+        break;
+    }
+}
+
 // Logs why the clock moves or waits, once each time that changes, and each run of flips.
 static void report(flip_action_t action)
 {
-    char display[HHMM_LEN], goal[HHMM_LEN];
-    format_minute(display, s_clock.display);
-    format_minute(goal, s_target);
     if (action == FLIP_ON_TIME && s_run_flips > 0) {
+        char display[HHMM_LEN];
+        format_minute(display, s_clock.display);
         ESP_LOGI(TAG, "Display %s after %u flip%s, %u steps", display, (unsigned)s_run_flips,
                  s_run_flips == 1 ? "" : "s", (unsigned)s_run_steps);
         s_run_flips = s_run_steps = 0;
@@ -68,28 +104,19 @@ static void report(flip_action_t action)
         return;
     }
     s_action = action;
-    int behind = (s_target - s_clock.display + FLIP_MINUTES_PER_DAY) % FLIP_MINUTES_PER_DAY;
-    switch (action) {
-    case FLIP_ADVANCE:
-        if (behind > 1) { // One minute behind is every minute's normal flip.
-            ESP_LOGI(TAG, "Display %s is %d minutes behind %s: catching up", display, behind, goal);
-        }
-        break;
-    case FLIP_WIND_AROUND:
-        ESP_LOGW(TAG, "Display %s is %d minutes ahead of %s, more than the %u-minute pause: "
-                 "winding forward %d minutes",
-                 display, FLIP_MINUTES_PER_DAY - behind, goal, (unsigned)s_clock.max_pause_minutes, behind);
-        break;
-    case FLIP_PAUSE:
-        ESP_LOGI(TAG, "Display %s is %d minutes ahead of %s: waiting for the time to catch up",
-                 display, FLIP_MINUTES_PER_DAY - behind, goal);
-        break;
-    case FLIP_IDLE:
+    // On time and each minute's normal flip need no line: the run line above covers them.
+    if (action == FLIP_ON_TIME || (action == FLIP_ADVANCE && s_clock.target == next_minute(s_clock.display))) {
+        return;
+    }
+    char text[160];
+    explain(text, sizeof text, &s_clock, action);
+    if (action == FLIP_IDLE) {
         ESP_LOGI(TAG, "Not moving the display: %s",
                  s_known ? "the time is not trusted" : "what it shows is unknown; set it with w HHMM");
-        break;
-    case FLIP_ON_TIME:
-        break;
+    } else if (action == FLIP_WIND_AROUND) {
+        ESP_LOGW(TAG, "%s", text);
+    } else {
+        ESP_LOGI(TAG, "%s", text);
     }
 }
 
@@ -127,8 +154,7 @@ static void pass(void)
         };
         saved(display_store_commit(&done));
     }
-    s_target = target();
-    flip_clock_set_target(&s_clock, s_target);
+    flip_clock_set_target(&s_clock, target());
     flip_next_t next = flip_clock_update(&s_clock);
     if (next.steps > 0) {
         // Nothing moves until the saved record says the display is changing. Otherwise a power
@@ -168,7 +194,8 @@ esp_err_t clock_task_start(const clock_task_config_t *config)
                     config->max_pause_minutes, 0);
 
     char saved[HHMM_LEN];
-    esp_err_t err = display_store_load(config->minutes_per_cycle, &s_saved_status, &s_saved);
+    uint8_t regs[DISPLAY_STORE_LEN];
+    esp_err_t err = display_store_load(config->minutes_per_cycle, regs, &s_saved_status, &s_saved);
     s_load_failed = err != ESP_OK;
     format_minute(saved, s_saved.display);
     if (s_load_failed) {
@@ -188,6 +215,10 @@ esp_err_t clock_task_start(const clock_task_config_t *config)
         ESP_LOGW(TAG, "No saved display");
     }
     if (!s_known) {
+        if (!s_load_failed) {
+            ESP_LOGW(TAG, "Saved bytes, alarm 2 registers 0Bh 0Ch 0Dh: %02x %02x %02x", regs[0],
+                     regs[1], regs[2]);
+        }
         ESP_LOGW(TAG, "Check what the display shows, then set it with: w HHMM");
     }
 
@@ -228,7 +259,6 @@ void clock_task_describe(char *text, size_t size)
     xSemaphoreTake(s_lock, portMAX_DELAY);
     char display[HHMM_LEN], goal[HHMM_LEN];
     format_minute(display, s_clock.display);
-    format_minute(goal, s_target);
     if (!s_known) {
         format_minute(goal, s_saved.display + 1);
         if (s_load_failed) {
@@ -248,14 +278,12 @@ void clock_task_describe(char *text, size_t size)
         }
     } else if (s_store_failing) {
         snprintf(text, size, "Display %s, stopped: saving it in the RTC fails", display);
-    } else if (s_target == FLIP_NO_TARGET) {
-        snprintf(text, size, "Display %s, not moving: the time is not trusted", display);
-    } else if (s_action == FLIP_PAUSE) {
-        snprintf(text, size, "Display %s, waiting for local time %s to catch up", display, goal);
-    } else if (s_action == FLIP_WIND_AROUND || (s_action == FLIP_ADVANCE && s_run_flips > 1)) {
-        snprintf(text, size, "Display %s, moving forward to %s", display, goal);
     } else {
-        snprintf(text, size, "Display %s, following local time", display);
+        // What the next pass would decide now, on a copy, so the answer holds at this moment
+        // rather than at the last pass. A burst that has handed out its steps counts as done.
+        flip_clock_t plan = s_clock;
+        flip_clock_set_target(&plan, target());
+        explain(text, size, &plan, flip_clock_update(&plan).action);
     }
     xSemaphoreGive(s_lock);
 }

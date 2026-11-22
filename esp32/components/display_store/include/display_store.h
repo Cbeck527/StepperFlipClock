@@ -6,9 +6,10 @@
 #include "display_store_format.h"
 #include "esp_err.h"
 
-// Reads the saved record. *status says what it holds.
-esp_err_t display_store_load(uint32_t minutes_per_cycle, display_store_status_t *status,
-                             display_record_t *record);
+// Reads the saved record into regs, as the three raw bytes, and decodes it. *status says
+// what it holds.
+esp_err_t display_store_load(uint32_t minutes_per_cycle, uint8_t regs[DISPLAY_STORE_LEN],
+                             display_store_status_t *status, display_record_t *record);
 
 // Marks the display as changing. Call before anything moves it.
 esp_err_t display_store_begin(uint32_t cycle_minute);

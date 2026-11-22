@@ -4,10 +4,9 @@
 
 _Static_assert(DISPLAY_STORE_LEN == DS3231_ALARM2_LEN, "the record fills the alarm 2 registers");
 
-esp_err_t display_store_load(uint32_t minutes_per_cycle, display_store_status_t *status,
-                             display_record_t *record)
+esp_err_t display_store_load(uint32_t minutes_per_cycle, uint8_t regs[DISPLAY_STORE_LEN],
+                             display_store_status_t *status, display_record_t *record)
 {
-    uint8_t regs[DISPLAY_STORE_LEN];
     esp_err_t err = ds3231_read_alarm2(regs);
     if (err == ESP_OK) {
         *status = display_store_decode(regs, minutes_per_cycle, record);

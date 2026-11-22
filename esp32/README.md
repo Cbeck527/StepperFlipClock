@@ -408,18 +408,23 @@ idf.py build
 idf.py flash monitor
 ```
 
-Press `Ctrl-T` then `Ctrl-R` to see the boot from the start. Because the DS3231 still holds
-what the Nano version last saved, which is out of date since the motor test moved the
-display, look for:
+Press `Ctrl-T` then `Ctrl-R` to see the boot from the start. The first time this firmware
+boots, the DS3231 holds what the Nano version last saved, or nothing usable if its battery
+has been out, so look for:
 
 ```text
 I (...) console_cmds: Terminal answered the escape-sequence probe; line editing is on
 W (...) clock_task: The saved display, 17:12, is from the Arduino version and probably stale
+W (...) clock_task: Saved bytes, alarm 2 registers 0Bh 0Ch 0Dh: 12 17 01
 W (...) clock_task: Check what the display shows, then set it with: w HHMM
 I (...) clock_task: Not moving the display: what it shows is unknown; set it with w HHMM
 ```
 
-The times will be different. **The motor must not move yet.**
+The times and bytes will be different, and `No saved display` in place of the Arduino line
+is just as fine: both mean the firmware does not know what the display shows. **The motor
+must not move yet.** If you have already been through step 2 with this firmware, the boot
+says `Display 18:56, minute 3 of the cycle, as saved` instead and the clock carries on by
+itself: skip to step 3.
 
 **Console check:** the `line editing is on` line is there, the boot does **not** say `Your
 terminal application does not support escape sequences`, and the first command you type
@@ -441,10 +446,11 @@ w 1802
 
 What happens next depends on where the display is compared to local time:
 
-- **Behind** (the usual case): the cards start flipping at once, about two a second, with a
-  log like `Display 18:02 is 25 minutes behind 18:27: catching up`, and when it has caught
-  up, `Display 18:27 after 25 flips, 3555 steps` (3555 or 3556). **Check:** the display now matches your
-  phone.
+- **Behind** (the usual case): `w` answers `Display 18:02 is 25 minutes behind 18:27:
+  catching up`, the cards start flipping at once, about two a second, and the log repeats
+  that line. `now` during the catch-up shows how far it still has to go. When it has caught
+  up, the log says `Display 18:27 after 25 flips, 3555 steps` (3555 or 3556). **Check:** the
+  display now matches your phone.
 - **Ahead** by up to 120 minutes, which is likely after the five `s 1280` of the motor test:
   `Display 18:47 is 45 minutes ahead of 18:02: waiting for the time to catch up`. Nothing
   moves until local time reaches the display. That is correct; leave it running and come
@@ -498,9 +504,9 @@ send-back list; it does not mean anything is wrong, but try step 5 once more.
 
 Paste these into the thread:
 
-1. The boot lines from step 1 that start with `console_cmds` or `clock_task`, and whether
-   the first `now` worked and the up arrow brought it back.
-2. The `w` you typed in step 2 and the `clock_task` lines that followed.
+1. The boot lines from step 1 that start with `console_cmds` or `clock_task`, including the
+   `Saved bytes` line, and whether the first `now` worked and the up arrow brought it back.
+2. The `w` you typed in step 2, the line it printed, and the `clock_task` lines that followed.
 3. The `clock_task` lines from step 3, and whether every card dropped when your phone's
    minute changed.
 4. The `clock_task` boot lines from step 4, and whether the display matched your phone
